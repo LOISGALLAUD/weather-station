@@ -4,8 +4,6 @@
 #define LED_TPSBOARD 4
 #define BLANK_CHARACTER " "
 
-volatile byte state0 = LOW;
-volatile byte state1 = LOW;
 volatile byte postscaler=LOW;
 volatile long int seconds = 0;
 volatile bool oscillatingVar = false;
@@ -13,7 +11,7 @@ int hour=0;
 int min=0;
 int sec=0;
 
-static int var_state1;
+static int var_state1, var_state0;
 
 // ------------------------ SPI -----------------------------
 
@@ -59,7 +57,7 @@ void writeString(const char* string) {
   }
 }
 void setLCDposition(uint8_t line, uint8_t column) {
-  uint8_t x = column - 0x1;
+  uint8_t x = column;
   uint8_t y = 0x20*(line);
   uint8_t ddgram = x+y;
 
@@ -73,9 +71,8 @@ void cleanDisplay(){
 // ------------------------ FLAGS -----------------------------
 
 ISR(INT0_vect) {
-  state0 = !state0;
-  Serial.println("pressed 0.");
-  delay(100);
+  Serial.print("var_stat0 = ");
+  Serial.println(var_state0);
   switch(var_state1) {
       case 1:
         seconds++;
@@ -86,16 +83,18 @@ ISR(INT0_vect) {
       case 3:
         seconds += 3600;
         break;
-      default:
+      default: // pas de chgt dheure
+        var_state0++;
+        var_state0 %= 4;
+        cleanDisplay();
         break;
   }
 }
 ISR(INT1_vect) {
-  state1 = !state1;
-  Serial.println("pressed 1.");
   var_state1++;
   var_state1 %= 4;
 }
+
 ISR(TIMER2_OVF_vect){
   TCNT2 = 131;
   if (postscaler<125) postscaler++;
@@ -123,7 +122,6 @@ void oscillate() {
 }
 
 void displayTime() {
-  Serial.println(var_state1);
   char hourStr[3];
   char minStr[3];
   char secStr[3];
@@ -133,25 +131,37 @@ void displayTime() {
   sprintf(minStr, "%02d", min);
   sprintf(secStr, "%02d", sec);
   
-  sprintf(timeStr, "%s:%s:%s", hourStr, minStr, secStr);
+  sprintf(timeStr, "%s-%s-%s", hourStr, minStr, secStr);
   
   if (oscillatingVar) {
     switch (var_state1) {
         case 1: 
-            sprintf(timeStr, "%s:%s:  ", hourStr, minStr);
+            sprintf(timeStr, "%s-%s-  ", hourStr, minStr);
           break;
         case 2:
-            sprintf(timeStr, "%s:  :%s", hourStr, secStr);
+            sprintf(timeStr, "%s-  -%s", hourStr, secStr);
           break;
         case 3:
-            sprintf(timeStr, "  :%s:%s", minStr, secStr);
+            sprintf(timeStr, "  -%s-%s", minStr, secStr);
           break;
         default:
           break;
       }
   }
-  setLCDposition(1, 7);
+  setLCDposition(0, 6);
   writeString(timeStr);
+}
+
+void displayCara(char * c1, char *c2, char *unit1, char *unit2,
+                int step1, int step2){
+  setLCDposition(2, 0);
+  writeString(c1);
+  setLCDposition(3, 0);
+  writeString(c2);
+  setLCDposition(2, step1);
+  writeString(unit1);
+  setLCDposition(3, step2);
+  writeString(unit2);
 }
 
 void setup() {
@@ -176,8 +186,57 @@ void setup() {
   setupLCD();
 }
 
+void writeDataLCD(String messagegot, char c1, char c2, int y1, int y2){
+  if (messagegot.startsWith(String(c1))) {
+      String H = messagegot.substring(1);
+      setLCDposition(2, y1);
+      writeString(H.c_str());
+    }
+  if (messagegot.startsWith(String(c2))) {
+      String P = messagegot.substring(1);
+      setLCDposition(3, y2);
+      writeString(P.c_str());
+    }
+}
+
 void loop() {
-  oscillate();
+  setLCDposition(0, 0);
+  writeString("Heure:");
   displayTime();
-  cleanDisplay();
+  setLCDposition(1, 0);
+  writeString("Temp:");
+
+  if (Serial.available() > 0) {
+    String receivedMessage = Serial.readStringUntil('\n');
+    //!\ ne pas toucher
+    if (receivedMessage.startsWith("T")) {
+      String T = receivedMessage.substring(1);
+      setLCDposition(1, 5);
+      writeString(T.c_str());
+      setLCDposition(1, 11);
+      writeString("C");
+    }
+
+    switch (var_state0) {
+          case 1:
+            displayCara("Pression:", "Luminosite:", "phPa", "lux", 15, 15);
+            writeDataLCD(receivedMessage, 'P', 'L', 9, 11);
+            break;
+          case 2:
+            displayCara("Luminosite:", "Qualite de l'air:", "lux", " ", 15, 19);
+            writeDataLCD(receivedMessage, 'L', 'Q', 11, 17);
+            break;
+          case 3:
+            displayCara("Qualite de l'air:", "Humidite:", " ", "%", 18, 14);
+            writeDataLCD(receivedMessage, 'Q', 'H', 17, 9);
+            break;
+          default:
+            displayCara("Humidite:", "Pression:", "%", "phPa", 15, 15);
+            writeDataLCD(receivedMessage, 'H', 'P', 9, 9 );
+            break;
+        }
+    
+    receivedMessage = "";
+  }
+
 }

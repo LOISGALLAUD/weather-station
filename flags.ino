@@ -1,11 +1,30 @@
 #include <Arduino.h>
-
 #define INT0 2
 #define INT1 3
 
 volatile byte state0 = LOW;
 volatile byte state1 = LOW;
-volatile byte postscaler = LOW;
+volatile byte postscaler=LOW;
+
+ISR(INT0_vect) {
+  state0 = !state0;
+  Serial.println("pressed0.");
+  delay(100);
+}
+
+ISR(INT1_vect) {
+  state1 = !state1;
+  Serial.println("pressed1.");
+}
+
+ISR(TIMER2_OVF_vect){
+  TCNT2 = 131;
+  if (postscaler<125) postscaler++;
+  else {
+    postscaler = 0;
+    Serial.println("Hello");
+  }
+}
 
 void setup() {
   Serial.begin(9600);
@@ -24,23 +43,3 @@ void setup() {
   
   interrupts();
 }
-
-ISR(INT0_vect) {
-  state0 = !state0;
-  Serial.println("INT0 pressed");
-}
-
-ISR(INT1_vect) {
-  state1 = !state1;
-  Serial.println("INT1 pressed");
-}
-
-ISR(TIMER2_OVF_vect){
-  TCNT2 = 131;
-  if (postscaler<125) postscaler++;
-  else {
-    postscaler = 0;
-    Serial.println("Hello");
-  }
-}
-
